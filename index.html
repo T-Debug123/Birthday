@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>A Night for You</title>
+    <style>
+        /* Resets and Full Screen Setup */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; 
+            background: #050608; 
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            touch-action: none; 
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* The Hidden Birthday Message Container */
+        #message-container {
+            position: absolute;
+            top: 25%; 
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ffffff;
+            text-align: center;
+            opacity: 0; 
+            transition: opacity 0.5s ease-in-out; 
+            pointer-events: none; 
+            text-shadow: 0 0 15px rgba(255, 255, 255, 0.7), 0 0 30px rgba(255, 255, 255, 0.3);
+            width: 85%;
+            max-width: 600px;
+            z-index: 10; 
+        }
+
+        /* MODIFIED: Scaled down text size properties */
+        h1 {
+            font-size: clamp(1.5rem, 5vw, 2.5rem); /* Made smaller */
+            margin-bottom: 12px;
+            letter-spacing: 1.5px;
+            min-height: 1em; 
+        }
+
+        p {
+            font-size: clamp(0.95rem, 3.2vw, 1.2rem); /* Made smaller */
+            font-weight: 300;
+            line-height: 1.6; 
+            margin: 0 auto;
+            min-height: 1em; 
+            color: rgba(255, 255, 255, 0.95);
+        }
+
+        /* Blinking Cursor for Typewriter Effect */
+        .typing-cursor::after {
+            content: '|';
+            animation: blink 1s step-end infinite;
+            margin-left: 4px;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="mainCanvas"></canvas>
+
+    <div id="message-container">
+        <h1 id="bday-h1"></h1>
+        <p id="bday-p"></p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d');
+        const messageContainer = document.getElementById('message-container');
+
+        let width, height;
+        
+        // Settings
+        const groundHeightPercentage = 0.25; 
+
+        // State Variables
+        let starCanvas, starCtx; 
+        let leafSprites = {}; 
+        const leafColors = ['#8B4513', '#A0522D', '#CD853F', '#D2691E', '#8FBC8F'];
+        
+        let customDrawLines = []; 
+        let groundLeaves = []; 
+        let groundFlowers = []; 
+        let seed = { x: 0, y: 0, discovered: false, clicked: false, pulse: 0 };
+        
+        let treeProgress = 0;
+        let treeData = { branches: [], leaves: [] };
+        
+        let isInteracting = false;
+        let currentMousePos = { x: -100, y: -100 }; 
+        let interactionMode = null; 
+        let messageShown = false;
+        let flowerPhaseStarted = false; 
+        let bloomCompleteTime = null; 
+
+        // Realistic astronomical coordinates for May 17, 1997 night sky map
+        let constellationStars = [
+            // Ursa Major (Big Dipper)
+            { id: 'um1', x: 0.15, y: 0.15, connectedTo: ['um2'], snapped: false },
+            { id: 'um2', x: 0.20, y: 0.18, connectedTo: ['um3'], snapped: false },
+            { id: 'um3', x: 0.24, y: 0.22, connectedTo: ['um4'], snapped: false },
+            { id: 'um4', x: 0.25, y: 0.30, connectedTo: ['um5', 'um7'], snapped: false },
+            { id: 'um5', x: 0.33, y: 0.31, connectedTo: ['um6'], snapped: false },
+            { id: 'um6', x: 0.31, y: 0.42, connectedTo: ['um7'], snapped: false },
+            { id: 'um7', x: 0.23, y: 0.40, connectedTo: [], snapped: false },
+
+            // Leo
+            { id: 'leo1', x: 0.50, y: 0.35, connectedTo: ['leo2'], snapped: false },
+            { id: 'leo2', x: 0.54, y: 0.28, connectedTo: ['leo3'], snapped: false },
+            { id: 'leo3', x: 0.60, y: 0.26, connectedTo: ['leo4'], snapped: false },
+            { id: 'leo4', x: 0.62, y: 0.32, connectedTo: ['leo5'], snapped: false },
+            { id: 'leo5', x: 0.58, y: 0.38, connectedTo: ['leo1', 'leo6'], snapped: false },
+            { id: 'leo6', x: 0.68, y: 0.42, connectedTo: ['leo7'], snapped: false },
+            { id: 'leo7', x: 0.74, y: 0.38, connectedTo: ['leo4'], snapped: false },
+
+            // Boötes 
+            { id: 'boo1', x: 0.78, y: 0.15, connectedTo: ['boo2'], snapped: false },
+            { id: 'boo2', x: 0.84, y: 0.12, connectedTo: ['boo3'], snapped: false },
+            { id: 'boo3', x: 0.88, y: 0.18, connectedTo: ['boo4'], snapped: false },
+            { id: 'boo4', x: 0.85, y: 0.26, connectedTo: ['boo5'], snapped: false },
+            { id: 'boo5', x: 0.79, y: 0.24, connectedTo: ['boo1'], snapped: false }, 
+
+            // Virgo
+            { id: 'vir1', x: 0.42, y: 0.55, connectedTo: ['vir2'], snapped: false },
+            { id: 'vir2', x: 0.48, y: 0.52, connectedTo: ['vir3'], snapped: false },
+            { id: 'vir3', x: 0.55, y: 0.58, connectedTo: ['vir4'], snapped: false }, 
+            { id: 'vir4', x: 0.62, y: 0.53, connectedTo: ['vir5'], snapped: false },
+            { id: 'vir5', x: 0.59, y: 0.48, connectedTo: ['vir2'], snapped: false },
+
+            // Comet Hale-Bopp (Great Comet of 1997)
+            { id: 'comet1', x: 0.12, y: 0.58, connectedTo: ['comet2'], snapped: false },
+            { id: 'comet2', x: 0.08, y: 0.52, connectedTo: [], snapped: false }
+        ];
+
+        // --- PERFORMANCE CACHING: Pre-render Leaf Sprites ---
+        function initLeafSprites() {
+            leafColors.forEach(color => {
+                const c = document.createElement('canvas');
+                const s = 40; 
+                c.width = s * 2;
+                c.height = s * 2.5;
+                const cctx = c.getContext('2d');
+                
+                cctx.translate(s, s * 1.5); 
+                
+                cctx.fillStyle = color;
+                cctx.beginPath();
+                cctx.moveTo(0, -s); 
+                cctx.quadraticCurveTo(s * 0.6, -s * 0.2, 0, s * 0.8); 
+                cctx.quadraticCurveTo(-s * 0.6, -s * 0.2, 0, -s); 
+                cctx.fill();
+
+                cctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+                cctx.lineWidth = 2;
+                cctx.beginPath();
+                cctx.moveTo(0, -s * 0.9);
+                cctx.lineTo(0, s * 1.2); 
+                cctx.stroke();
+
+                leafSprites[color] = c;
+            });
+        }
+
+        // --- Initialization & Setup ---
+        function resizeCanvas() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            
+            initStaticStars();
+            initGroundElements();
+            if(!messageShown) messageContainer.style.opacity = 0;
+        }
+
+        function initStaticStars() {
+            starCanvas = document.createElement('canvas');
+            starCanvas.width = width;
+            starCanvas.height = height;
+            starCtx = starCanvas.getContext('2d');
+            
+            const bgGradient = starCtx.createRadialGradient(width/2, height/2, 0, width/2, height/2, Math.max(width, height));
+            bgGradient.addColorStop(0, '#0a1128'); 
+            bgGradient.addColorStop(1, '#02040a');
+            starCtx.fillStyle = bgGradient;
+            starCtx.fillRect(0, 0, width, height);
+
+            const numStars = Math.floor((width * height) / 1800);
+            for (let i = 0; i < numStars; i++) {
+                starCtx.beginPath();
+                starCtx.arc(
+                    Math.random() * width,
+                    Math.random() * height * (1 - groundHeightPercentage * 0.8), 
+                    Math.random() * 1.8 + 0.4, 
+                    0, 
+                    Math.PI * 2
+                );
+                starCtx.fillStyle = `rgba(255, 255, 255, ${Math.random() * 0.75 + 0.25})`;
+                starCtx.fill();
+            }
+        }
+
+        function initGroundElements() {
+            const groundY = height * (1 - groundHeightPercentage);
+            
+            if (treeProgress === 0) {
+                seed.x = width * 0.2 + Math.random() * (width * 0.6); 
+                seed.y = groundY + 30 + Math.random() * (height - groundY - 60);
+                seed.clicked = false;
+                
+                groundLeaves = [];
+                groundFlowers = [];
+                flowerPhaseStarted = false;
+                bloomCompleteTime = null;
+                
+                const isMobile = width < 768;
+                const densityDivisor = isMobile ? 30 : 60; 
+                let numLeaves = Math.floor((width * (height * groundHeightPercentage)) / densityDivisor);
+                numLeaves = Math.min(numLeaves, 3500); 
+                
+                for(let i = 0; i < numLeaves; i++) {
+                    const leafSize = isMobile ? (Math.random() * 8 + 8) : (Math.random() * 10 + 15);
+                    groundLeaves.push({
+                        x: Math.random() * width,
+                        y: groundY + Math.random() * (height - groundY),
+                        vx: 0,
+                        vy: 0,
+                        angle: Math.random() * Math.PI * 2,
+                        color: leafColors[Math.floor(Math.random() * leafColors.length)],
+                        size: leafSize,
+                        isDying: false 
+                    });
+                }
+            } else {
+                groundLeaves.forEach(leaf => {
+                    if (!leaf.isDying) {
+                        if (leaf.y > height) leaf.y = height - 10;
+                        if (leaf.y < groundY) leaf.y = groundY + 10;
+                    }
+                });
+            }
+        }
+
+        function triggerTreeFlowerFall() {
+            flowerPhaseStarted = true;
+            const isMobile = width < 768;
+            
+            const totalFlowers = isMobile ? 60 : 130;
+            const flowerColors = ['#ffccd5', '#ffb3c6', '#fbc4b6', '#fff0f3', '#fae0e4', '#ffe5ec'];
+
+            for (let i = 0; i < totalFlowers; i++) {
+                let sourceLeaf = treeData.leaves[Math.floor(Math.random() * treeData.leaves.length)];
+                let spawnX = sourceLeaf ? sourceLeaf.x : seed.x + (Math.random() - 0.5) * 200;
+                let spawnY = sourceLeaf ? sourceLeaf.y : seed.y - 150;
+
+                groundFlowers.push({
+                    x: spawnX,
+                    y: spawnY,
+                    targetY: height * (1 - groundHeightPercentage) + 10 + Math.random() * (height * groundHeightPercentage - 25),
+                    maxSize: Math.random() * (isMobile ? 1.5 : 2) + 1.2, 
+                    currentSize: 0,
+                    hasLanded: false,
+                    fallSpeed: Math.random() * 0.8 + 0.6,
+                    swaySpeed: Math.random() * 0.02 + 0.015,
+                    swayRadius: Math.random() * 1.5 + 0.5,
+                    color: flowerColors[Math.floor(Math.random() * flowerColors.length)],
+                    petals: Math.floor(Math.random() * 2) + 5, 
+                    pulseSeed: Math.random() * 100
+                });
+            }
+        }
+
+        // --- Typewriter Logic ---
+        function startTypewriter() {
+            messageContainer.style.opacity = 1;
+            
+            const h1Element = document.getElementById('bday-h1');
+            const pElement = document.getElementById('bday-p');
+            
+            const h1Text = [... "Happy Birthday Tanvi ❤️"];
+            const pText = [... "I hope everyday is full of love, laughter, late-night talks, sweet surprises, and all the happiness your heart can hold 😘✨"];
+            
+            let h1Index = 0;
+            let pIndex = 0;
+
+            h1Element.classList.add('typing-cursor');
+
+            function typeH1() {
+                if (h1Index < h1Text.length) {
+                    h1Element.innerHTML += h1Text[h1Index];
+                    h1Index++;
+                    setTimeout(typeH1, 80); 
+                } else {
+                    h1Element.classList.remove('typing-cursor');
+                    pElement.classList.add('typing-cursor');
+                    setTimeout(typeP, 600); 
+                }
+            }
+
+            function typeP() {
+                if (pIndex < pText.length) {
+                    pElement.innerHTML += pText[pIndex];
+                    pIndex++;
+                    setTimeout(typeP, 45); 
+                } else {
+                    setTimeout(() => pElement.classList.remove('typing-cursor'), 2500);
+                }
+            }
+
+            typeH1(); 
+        }
+
+        // --- Fractal Tree Generator ---
+        function generateTreeData(startX, startY) {
+            treeData.branches = [];
+            treeData.leaves = [];
+            
+            const isMobile = width < 768;
+            const maxDepth = isMobile ? 7 : 8; 
+            const baseScale = Math.min(width, height);
+            
+            const initialLength = baseScale * (isMobile ? 0.16 : 0.12); 
+            const initialWidth = isMobile ? 25 : 35; 
+
+            function buildBranch(x, y, len, angle, depth, branchWidth) {
+                const endX = x + Math.cos(angle) * len;
+                const endY = y + Math.sin(angle) * len;
+
+                treeData.branches.push({
+                    x1: x, y1: y,
+                    x2: endX, y2: endY,
+                    width: branchWidth,
+                    depth: depth 
+                });
+
+                if (depth < maxDepth) {
+                    const outerLeaves = isMobile ? 4 : 6;
+                    const innerLeaves = isMobile ? 2 : 4;
+                    const numLeaves = depth === 0 ? outerLeaves : innerLeaves; 
+                    
+                    for(let i=0; i < numLeaves; i++) {
+                        const t = Math.random();
+                        const branchPx = x + (endX - x) * t;
+                        const branchPy = y + (endY - y) * t;
+
+                        treeData.leaves.push({
+                            x: branchPx + (Math.random() - 0.5) * (isMobile ? 35 : 50), 
+                            y: branchPy + (Math.random() - 0.5) * (isMobile ? 35 : 50),
+                            size: Math.random() * (isMobile ? 6 : 8) + (isMobile ? 8 : 12), 
+                            color: ['#ffffff', '#fff0f3', '#ffb3c6', '#ff758f'][Math.floor(Math.random() * 4)],
+                            angle: (Math.random() - 0.5) * 0.8,
+                            depth: depth 
+                        });
+                    }
+                }
+
+                if (depth === 0) return; 
+
+                const angleOffset = Math.random() * 0.2 + 0.25; 
+                const newLength = len * (Math.random() * 0.15 + 0.75); 
+                const newWidth = branchWidth * 0.65; 
+
+                buildBranch(endX, endY, newLength, angle + angleOffset, depth - 1, newWidth);
+                buildBranch(endX, endY, newLength, angle - angleOffset, depth - 1, newWidth);
+            }
+
+            buildBranch(startX, startY, initialLength, -Math.PI / 2, maxDepth, initialWidth);
+        }
+
+        // --- Drawing Functions ---
+        function drawBackground() {
+            ctx.drawImage(starCanvas, 0, 0);
+            
+            const time = Date.now() * 0.002;
+            const skyHeightCap = height * (1 - groundHeightPercentage);
+            
+            constellationStars.forEach(star => {
+                const px = star.x * width;
+                const py = star.y * skyHeightCap;
+                
+                const isCometNode = star.id.includes('comet');
+                const pulseAlpha = star.snapped ? 0.9 : 0.20 + Math.sin(time + (star.x * 10)) * 0.08;
+                const radius = star.snapped ? 4.5 : 3;
+                
+                if (star.id === 'comet1' && star.snapped) {
+                    ctx.save();
+                    ctx.translate(px, py);
+                    let gradient = ctx.createLinearGradient(0, 0, -60, -30);
+                    gradient.addColorStop(0, 'rgba(163, 194, 255, 0.55)');
+                    gradient.addColorStop(1, 'rgba(163, 194, 255, 0)');
+                    ctx.fillStyle = gradient;
+                    ctx.beginPath();
+                    ctx.moveTo(0,0);
+                    ctx.lineTo(-65, -20);
+                    ctx.lineTo(-55, -45);
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                }
+
+                ctx.beginPath();
+                ctx.arc(px, py, radius, 0, Math.PI * 2);
+                
+                if (isCometNode) {
+                    ctx.fillStyle = star.snapped ? `rgba(180, 210, 255, ${pulseAlpha})` : `rgba(224, 242, 254, ${pulseAlpha})`;
+                } else {
+                    ctx.fillStyle = `rgba(255, 255, 255, ${pulseAlpha})`;
+                }
+                
+                ctx.shadowBlur = star.snapped ? 15 : 6;
+                ctx.shadowColor = star.snapped ? '#a3c2ff' : (isCometNode ? '#bae6fd' : 'white');
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                
+                star.connectedTo.forEach(targetId => {
+                    const target = constellationStars.find(s => s.id === targetId);
+                    if (target) {
+                        const tx = target.x * width;
+                        const ty = target.y * skyHeightCap;
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(px, py);
+                        ctx.lineTo(tx, ty);
+                        if (star.snapped && target.snapped) {
+                            ctx.strokeStyle = 'rgba(163, 194, 255, 0.45)';
+                            ctx.lineWidth = 1.5;
+                        } else {
+                            ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+                            ctx.lineWidth = 1;
+                        }
+                        ctx.stroke();
+                    }
+                });
+            });
+        }
+
+        function drawUserSkyLines() {
+            if (customDrawLines.length < 2) return;
+            ctx.beginPath();
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+            ctx.lineWidth = 2.5; 
+            ctx.lineCap = 'round';
+            
+            ctx.moveTo(customDrawLines[0].x, customDrawLines[0].y);
+            for (let i = 1; i < customDrawLines.length; i++) {
+                ctx.lineTo(customDrawLines[i].x, customDrawLines[i].y);
+            }
+            ctx.stroke();
+        }
+
+        function drawGround() {
+            const groundY = height * (1 - groundHeightPercentage);
+            ctx.beginPath();
+            ctx.moveTo(0, groundY + 50);
+            ctx.bezierCurveTo(width * 0.25, groundY - 50, width * 0.5, groundY + 100, width * 0.75, groundY - 20);
+            ctx.lineTo(width, groundY + 30);
+            ctx.lineTo(width, height); 
+            ctx.lineTo(0, height);     
+            ctx.closePath();
+            
+            const groundGradient = ctx.createLinearGradient(0, groundY - 50, 0, height);
+            groundGradient.addColorStop(0, '#2e4a22'); 
+            groundGradient.addColorStop(1, '#0f1a0a'); 
+            
+            ctx.fillStyle = groundGradient;
+            ctx.fill();
+        }
+
+        function drawSeed() {
+            if (seed.clicked) return; 
+
+            seed.pulse += 0.05;
+            const glow = Math.sin(seed.pulse) * 4 + 6; 
+
+            ctx.beginPath();
+            ctx.arc(seed.x, seed.y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffd700'; 
+            ctx.shadowBlur = glow;
+            ctx.shadowColor = '#ffea00';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        function drawCustomCursors() {
+            if (!isInteracting) return;
+            
+            const mode = getInteractionMode(currentMousePos.y);
+            const timeTicker = Date.now() * 0.007; 
+
+            if (mode === 'sky') {
+                ctx.save();
+                
+                const orbitRadius = 22; 
+                const orbitX = currentMousePos.x + Math.cos(timeTicker) * orbitRadius;
+                const orbitY = currentMousePos.y + Math.sin(timeTicker) * orbitRadius;
+                
+                ctx.translate(orbitX, orbitY);
+                ctx.rotate(timeTicker + Math.PI / 2); 
+                
+                ctx.fillStyle = '#f97316';
+                ctx.beginPath();
+                ctx.moveTo(-3, 8); ctx.lineTo(0, 16); ctx.lineTo(3, 8);
+                ctx.closePath(); ctx.fill();
+
+                ctx.fillStyle = '#f1f5f9';
+                ctx.beginPath();
+                ctx.moveTo(0, -10); ctx.lineTo(4, 4); ctx.lineTo(-4, 4);
+                ctx.closePath(); ctx.fill();
+                
+                ctx.fillStyle = '#ef4444';
+                ctx.fillRect(-6, 0, 2, 4);
+                ctx.fillRect(4, 0, 2, 4);
+
+                ctx.restore();
+
+            } else if (mode === 'ground' && groundLeaves.length > 12) {
+                ctx.save();
+                ctx.translate(currentMousePos.x, currentMousePos.y);
+                
+                const sweepAngle = Math.sin(timeTicker * 1.8) * 0.45; 
+                ctx.rotate(sweepAngle + Math.PI / 6); 
+                
+                ctx.strokeStyle = '#b45309';
+                ctx.lineWidth = 2.5;
+                ctx.lineCap = 'round';
+                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -14); ctx.stroke();
+                
+                ctx.fillStyle = '#eab308';
+                ctx.beginPath();
+                ctx.moveTo(0, 0); ctx.lineTo(-6, 10); ctx.lineTo(6, 10);
+                ctx.closePath(); ctx.fill();
+
+                ctx.strokeStyle = '#78350f';
+                ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(-3, 4); ctx.lineTo(3, 4); ctx.stroke();
+
+                ctx.restore();
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function drawSpriteLeaf(x, y, angle, size, color) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            
+            const scale = size / 40; 
+            ctx.scale(scale, scale);
+            ctx.drawImage(leafSprites[color], -40, -60); 
+
+            ctx.restore();
+        }
+
+        function updateAndDrawLeaves() {
+            const groundY = height * (1 - groundHeightPercentage);
+
+            if (treeProgress > 0.3 && groundLeaves.length > 12) {
+                for (let i = groundLeaves.length - 1; i >= 12; i--) {
+                    let leaf = groundLeaves[i];
+                    leaf.isDying = true; 
+                    
+                    leaf.size *= (0.985 + Math.random() * 0.01); 
+                    leaf.vy += (0.2 + Math.random() * 0.3);      
+                    leaf.vx += (Math.random() - 0.5) * 1.5;      
+
+                    if (leaf.y > height + 20 || leaf.size < 0.5) {
+                        groundLeaves.splice(i, 1); 
+                    }
+                }
+            }
+
+            groundLeaves.forEach(leaf => {
+                leaf.x += leaf.vx;
+                leaf.y += leaf.vy;
+                leaf.vx *= 0.88; 
+                leaf.vy *= 0.88;
+
+                if (leaf.x < -20) leaf.x = width + 20;
+                if (leaf.x > width + 20) leaf.x = -20;
+                
+                if (!leaf.isDying) {
+                    if (leaf.y < groundY) { leaf.y = groundY; leaf.vy *= -1; }
+                    if (leaf.y > height) { leaf.y = height; leaf.vy *= -1; }
+                }
+
+                drawSpriteLeaf(leaf.x, leaf.y, leaf.angle, leaf.size, leaf.color);
+            });
+        }
+
+        function updateAndDrawFlowers() {
+            const globalTime = Date.now() * 0.003;
+
+            groundFlowers.forEach(flower => {
+                if (!flower.hasLanded) {
+                    flower.y += flower.fallSpeed;
+                    flower.x += Math.sin(globalTime * 2 + flower.pulseSeed) * flower.swayRadius;
+                    
+                    if (flower.currentSize < flower.maxSize) {
+                        flower.currentSize += 0.05; 
+                    }
+
+                    if (flower.y >= flower.targetY) {
+                        flower.y = flower.targetY;
+                        flower.hasLanded = true;
+                    }
+                }
+
+                let pulse = 0;
+                if (flower.hasLanded) {
+                    pulse = Math.sin(globalTime * 1.5 + flower.pulseSeed) * (flower.currentSize * 0.22);
+                }
+                const currentRadius = flower.currentSize + pulse;
+
+                ctx.save();
+                ctx.translate(flower.x, flower.y);
+                
+                ctx.fillStyle = flower.color;
+                if (flower.hasLanded) {
+                    ctx.shadowBlur = 4;
+                    ctx.shadowColor = flower.color;
+                }
+
+                ctx.beginPath();
+                for (let j = 0; j < flower.petals; j++) {
+                    ctx.rotate((Math.PI * 2) / flower.petals);
+                    ctx.ellipse(0, -currentRadius, currentRadius * 0.5, currentRadius * 0.9, 0, 0, Math.PI * 2);
+                }
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(0, 0, currentRadius * 0.35, 0, Math.PI * 2);
+                ctx.fillStyle = '#fef08a';
+                ctx.fill();
+
+                ctx.restore();
+            });
+            ctx.shadowBlur = 0;
+        }
+
+        function drawHeart(x, y, size, color, angle = 0) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle); 
+            
+            ctx.fillStyle = color;
+            ctx.shadowBlur = 5; 
+            ctx.shadowColor = color; 
+            
+            ctx.beginPath();
+            ctx.moveTo(0, size / 4);
+            ctx.bezierCurveTo(0, 0, -size / 2, 0, -size / 2, size / 4);
+            ctx.bezierCurveTo(-size / 2, size / 2, 0, size * 0.8, 0, size);
+            ctx.bezierCurveTo(0, size * 0.8, size / 2, size / 2, size / 2, size / 4);
+            ctx.bezierCurveTo(size / 2, 0, 0, 0, 0, size / 4);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+
+        function updateAndDrawTree() {
+            if (!seed.clicked) return;
+
+            if (treeProgress < 1.5) treeProgress += 0.003; 
+
+            const currentMaxDepth = width < 768 ? 7 : 8;
+
+            treeData.branches.forEach(branch => {
+                const branchGrowthStart = (currentMaxDepth - branch.depth) / (currentMaxDepth + 1); 
+                
+                if (treeProgress > branchGrowthStart) {
+                    const localProgress = Math.min((treeProgress - branchGrowthStart) * 9, 1);
+                    
+                    const currentX2 = branch.x1 + (branch.x2 - branch.x1) * localProgress;
+                    const currentY2 = branch.y1 + (branch.y2 - branch.y1) * localProgress;
+
+                    ctx.beginPath();
+                    ctx.moveTo(branch.x1, branch.y1);
+                    ctx.lineTo(currentX2, currentY2);
+                    ctx.lineWidth = branch.width;
+                    ctx.strokeStyle = '#2b160a'; 
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                }
+            });
+
+            treeData.leaves.forEach(leaf => {
+                const leafGrowthStart = (currentMaxDepth - leaf.depth) / (currentMaxDepth + 1) + 0.05; 
+                
+                if (treeProgress > leafGrowthStart) {
+                     const leafProgress = Math.min((treeProgress - leafGrowthStart) * 8, 1); 
+                     const easedProgress = Math.sin(leafProgress * Math.PI / 2);
+                     drawHeart(leaf.x, leaf.y, leaf.size * easedProgress, leaf.color, leaf.angle);
+                }
+            });
+
+            if (treeProgress >= 1.2 && bloomCompleteTime === null) {
+                bloomCompleteTime = Date.now();
+            }
+
+            if (bloomCompleteTime !== null && Date.now() - bloomCompleteTime > 2000 && !flowerPhaseStarted) {
+                triggerTreeFlowerFall();
+            }
+
+            if (treeProgress > 1.2 && !messageShown) {
+                messageShown = true;
+                startTypewriter();
+            }
+        }
+
+        function animate() {
+            drawBackground();
+            drawUserSkyLines();
+            drawGround(); 
+            
+            drawSeed(); 
+            updateAndDrawTree(); 
+            updateAndDrawLeaves(); 
+            updateAndDrawFlowers(); 
+            drawCustomCursors(); 
+
+            requestAnimationFrame(animate);
+        }
+
+        // --- Interaction Logic ---
+        function getInteractionMode(y) {
+            const groundYThreshold = height * (1 - groundHeightPercentage) - 30; 
+            return y > groundYThreshold ? 'ground' : 'sky';
+        }
+
+        function startInteraction(x, y) {
+            isInteracting = true;
+            lastX = x;
+            lastY = y;
+            currentMousePos = { x, y };
+            interactionMode = getInteractionMode(y);
+
+            if (interactionMode === 'sky') {
+                customDrawLines = [{ x, y }];
+                checkConstellationProximity(x, y);
+            } else if (interactionMode === 'ground') {
+                const distToSeed = Math.hypot(seed.x - x, seed.y - y);
+                const tapRadius = width < 768 ? 80 : 50; 
+                if (distToSeed < tapRadius && !seed.clicked) {
+                    seed.clicked = true;
+                    generateTreeData(seed.x, seed.y);
+                }
+            }
+        }
+
+        function handleMoveInteraction(x, y) {
+            currentMousePos = { x, y };
+            if (!isInteracting) return;
+
+            if (interactionMode === 'ground') {
+                groundLeaves.forEach(leaf => {
+                    const dx = leaf.x - x;
+                    const dy = leaf.y - y;
+                    const dist = Math.hypot(dx, dy);
+                    
+                    const influenceRadius = width < 768 ? 160 : 200;
+                    if(dist < influenceRadius) { 
+                        const force = (influenceRadius - dist) / influenceRadius;
+                        leaf.vx += (dx / dist) * force * 20; 
+                        leaf.vy += (dy / dist) * force * 20;
+                    }
+                });
+            } else if (interactionMode === 'sky') {
+                customDrawLines.push({ x, y });
+                checkConstellationProximity(x, y);
+            }
+            lastX = x;
+            lastY = y;
+        }
+
+        function checkConstellationProximity(x, y) {
+            const skyHeightCap = height * (1 - groundHeightPercentage);
+            const snapTolerance = 30; 
+
+            constellationStars.forEach(star => {
+                const sx = star.x * width;
+                const sy = star.y * skyHeightCap;
+                const dist = Math.hypot(sx - x, sy - y);
+                
+                if (dist < snapTolerance) {
+                    star.snapped = true; 
+                }
+            });
+        }
+
+        function endInteraction() {
+            isInteracting = false;
+            interactionMode = null;
+            customDrawLines = []; 
+        }
+
+        // --- Event Listeners ---
+        window.addEventListener('resize', resizeCanvas);
+
+        canvas.addEventListener('mousedown', (e) => startInteraction(e.clientX, e.clientY));
+        canvas.addEventListener('mousemove', (e) => handleMoveInteraction(e.clientX, e.clientY));
+        canvas.addEventListener('mouseup', endInteraction);
+        canvas.addEventListener('mouseout', endInteraction);
+
+        canvas.addEventListener('pointermove', (e) => {
+            currentMousePos.x = e.clientX;
+            currentMousePos.y = e.clientY;
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            startInteraction(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            handleMoveInteraction(e.touches[0].clientX, e.touches[0].clientY);
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', endInteraction);
+
+        // --- Run ---
+        initLeafSprites(); 
+        resizeCanvas(); 
+        animate(); 
+
+    </script>
+</body>
+</html>
